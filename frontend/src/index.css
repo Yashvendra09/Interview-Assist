@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Professional Proctoring System Design System */
+
+@layer base {
+  :root {
+    /* Core Background & Text */
+    --background: 210 20% 98%;
+    --foreground: 215 25% 15%;
+    
+    /* Professional Blues */
+    --primary: 215 85% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 215 85% 40%;
+    
+    /* Status Colors */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --danger: 0 84% 60%;
+    --danger-foreground: 0 0% 100%;
+    
+    /* Interface Elements */
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 15%;
+    --border: 215 20% 85%;
+    --input: 215 20% 95%;
+    --ring: 215 85% 45%;
+    
+    /* Semantic UI Colors */
+    --secondary: 215 15% 95%;
+    --secondary-foreground: 215 25% 25%;
+    --muted: 215 15% 92%;
+    --muted-foreground: 215 15% 45%;
+    --accent: 215 25% 90%;
+    --accent-foreground: 215 25% 15%;
+    
+    /* Proctoring-specific */
+    --detection-overlay: 215 85% 45% / 0.8;
+    --violation-overlay: 0 84% 60% / 0.9;
+    --safe-overlay: 142 76% 36% / 0.8;
+    
+    /* Shadows & Effects */
+    --shadow-soft: 0 2px 8px -2px hsl(215 25% 15% / 0.1);
+    --shadow-medium: 0 4px 16px -4px hsl(215 25% 15% / 0.15);
+    --shadow-strong: 0 8px 32px -8px hsl(215 25% 15% / 0.2);
+    
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-fast: all 0.15s ease-out;
+    
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 215 25% 8%;
+    --foreground: 215 20% 92%;
+    --card: 215 25% 10%;
+    --card-foreground: 215 20% 92%;
+    --border: 215 25% 20%;
+    --input: 215 25% 15%;
+    --ring: 215 85% 55%;
+    --secondary: 215 25% 15%;
+    --secondary-foreground: 215 20% 85%;
+    --muted: 215 25% 12%;
+    --muted-foreground: 215 15% 65%;
+    --accent: 215 25% 18%;
+    --accent-foreground: 215 20% 90%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  
+  /* Custom scrollbar for event logs */
+  .scroll-area {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+  
+  .scroll-area::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scroll-area::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 3px;
+  }
+  
+  .scroll-area::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+@layer components {
+  /* Detection overlays */
+  .detection-overlay {
+    position: absolute;
+    border: 2px solid hsl(var(--primary));
+    background: hsl(var(--detection-overlay));
+    border-radius: 4px;
+    backdrop-filter: blur(1px);
+    transition: var(--transition-fast);
+  }
+  
+  .violation-overlay {
+    border-color: hsl(var(--danger));
+    background: hsl(var(--violation-overlay));
+  }
+  
+  .safe-overlay {
+    border-color: hsl(var(--success));
+    background: hsl(var(--safe-overlay));
+  }
+  
+  /* Status indicators */
+  .status-indicator {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium;
+    transition: var(--transition-smooth);
+  }
+  
+  .status-loading {
+    @apply bg-warning text-warning-foreground;
+    animation: pulse 2s infinite;
+  }
+  
+  .status-ready {
+    @apply bg-success text-success-foreground;
+  }
+  
+  .status-error {
+    @apply bg-danger text-danger-foreground;
+  }
+  
+  /* Event log animations */
+  .event-item {
+    @apply opacity-0 translate-y-2;
+    animation: slideIn 0.3s ease-out forwards;
+  }
+  
+  @keyframes slideIn {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Recording indicator */
+  .recording-indicator {
+    @apply bg-danger text-danger-foreground;
+    animation: recordingPulse 1.5s infinite;
+  }
+  
+  @keyframes recordingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+  }
+}

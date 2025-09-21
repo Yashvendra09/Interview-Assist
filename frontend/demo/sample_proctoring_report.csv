@@ -1,0 +1,17 @@
+Candidate: John Smith
+Report Generated: 2024-09-20T14:30:00.000Z
+Total Events: 12
+
+Timestamp,Event Type,Details,Duration (seconds),Confidence,Severity
+"2024-09-20T14:00:00.123Z","system","Camera initialized successfully","","","low"
+"2024-09-20T14:00:02.456Z","system","faceDetection model loaded","","","low"
+"2024-09-20T14:00:03.789Z","system","objectDetection model loaded","","","low"
+"2024-09-20T14:00:05.012Z","system","Recording started","","","low"
+"2024-09-20T14:02:15.345Z","violation","Looking away for 6s","6","","medium"
+"2024-09-20T14:05:30.678Z","object_detected","cell phone detected","","78.5%","high"
+"2024-09-20T14:05:32.901Z","object_detected","cell phone detected","","82.1%","high"
+"2024-09-20T14:08:45.234Z","violation","No face detected for 12s","12","","high"
+"2024-09-20T14:12:18.567Z","violation","Multiple faces detected","","","high"
+"2024-09-20T14:15:33.890Z","object_detected","book detected","","67.3%","medium"
+"2024-09-20T14:18:42.123Z","violation","Looking away for 8s","8","","medium"
+"2024-09-20T14:20:00.456Z","system","Recording stopped","","","low"
