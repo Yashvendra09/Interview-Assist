@@ -40,7 +40,7 @@ class DetectionEngine {
   private ctx: CanvasRenderingContext2D;
   private callbacks: DetectionCallbacks;
   
-  private faceMesh: FaceMesh | null = null;
+  private faceMesh: any = null; // use any for runtime-loaded FaceMesh
   private objectModel: cocoSsd.ObjectDetection | null = null;
   
   private detectionActive = false;
@@ -89,33 +89,95 @@ class DetectionEngine {
     }
   }
 
+  /**
+   * Load mediapipe FaceMesh from CDN (if needed) and return the constructor.
+   * Handles different possible exports (global, default wrapper, etc).
+   */
+  private async loadFaceMeshConstructorFromCDN(): Promise<any> {
+    // If already available on window, return it
+    const anyWindow = window as any;
+    const findConstructor = () => {
+      // common places where it might be exposed
+      if (anyWindow.FaceMesh && typeof anyWindow.FaceMesh === 'function') return anyWindow.FaceMesh;
+      if (anyWindow.default && anyWindow.default.FaceMesh && typeof anyWindow.default.FaceMesh === 'function') return anyWindow.default.FaceMesh;
+      if (anyWindow.faceMesh && typeof anyWindow.faceMesh === 'function') return anyWindow.faceMesh;
+      // some bundles attach under a module name
+      if (anyWindow.__mediapipe_face_mesh__ && anyWindow.__mediapipe_face_mesh__.FaceMesh) return anyWindow.__mediapipe_face_mesh__.FaceMesh;
+      // attempt to find nested default
+      if (anyWindow.default && anyWindow.default.default && anyWindow.default.default.FaceMesh) return anyWindow.default.default.FaceMesh;
+      return null;
+    };
+
+    let ctor = findConstructor();
+    if (ctor) return ctor;
+
+    // Not present yet — inject CDN script and wait for it
+    const CDN_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+
+    // Avoid injecting twice
+    const existingScript = document.querySelector(`script[src="${CDN_URL}"]`);
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = CDN_URL;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+
+      // wait for load or error
+      await new Promise<void>((resolve, reject) => {
+        script.addEventListener('load', () => resolve());
+        script.addEventListener('error', (ev) => reject(new Error('Failed to load FaceMesh CDN script')));
+        // safety timeout — if it never loads, reject
+        setTimeout(() => reject(new Error('Timed out loading FaceMesh CDN script')), 10000);
+      });
+    } else {
+      // script already present; wait a tick for it to evaluate
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // try to find constructor again after script load
+    ctor = findConstructor();
+    if (ctor) return ctor;
+
+    // last-ditch: check common default wrappers
+    if (anyWindow.FaceMesh && (anyWindow.FaceMesh as any).default) {
+      const maybe = (anyWindow.FaceMesh as any).default;
+      if (typeof maybe === 'function') return maybe;
+      if (maybe && maybe.FaceMesh) return maybe.FaceMesh;
+    }
+
+    // if still not found, provide a helpful error
+    throw new Error('FaceMesh constructor not found on window after loading CDN. Check that the CDN path is correct and that the script has loaded before app code runs.');
+  }
+
   private async initializeFaceMesh(): Promise<void> {
     try {
-      // Use FaceMesh from the global window (loaded via CDN in index.html)
-      // @ts-ignore because TS doesn’t know about global FaceMesh
-      this.faceMesh = new (window as any).FaceMesh({
+      // Load the FaceMesh constructor robustly (from global CDN)
+      const FaceMeshCtor = await this.loadFaceMeshConstructorFromCDN();
+
+      // create an instance using located file path for assets
+      this.faceMesh = new FaceMeshCtor({
         locateFile: (file: string) =>
           `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
       });
-  
+
       this.faceMesh.setOptions({
         maxNumFaces: 3,
         refineLandmarks: false,
         minDetectionConfidence: 0.7,
         minTrackingConfidence: 0.7,
       });
-  
+
       this.faceMesh.onResults(this.onFaceMeshResults.bind(this));
-  
-      this.callbacks.onModelLoad("faceDetection", true);
-      console.log("Face mesh model loaded successfully (via CDN)");
+
+      this.callbacks.onModelLoad('faceDetection', true);
+      console.log('Face mesh model loaded successfully (via CDN)');
     } catch (error) {
-      console.error("Face mesh initialization failed:", error);
-      this.callbacks.onModelLoad("faceDetection", false);
+      console.error('Face mesh initialization failed:', error);
+      this.callbacks.onModelLoad('faceDetection', false);
       throw error;
     }
   }
-  
 
   private async initializeObjectDetection(): Promise<void> {
     try {
@@ -458,7 +520,11 @@ class DetectionEngine {
     this.stopDetection();
     
     if (this.faceMesh) {
-      this.faceMesh.close();
+      try {
+        this.faceMesh.close?.();
+      } catch (e) {
+        // ignore
+      }
       this.faceMesh = null;
     }
     
