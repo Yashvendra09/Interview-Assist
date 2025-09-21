@@ -40,7 +40,7 @@ class DetectionEngine {
   private ctx: CanvasRenderingContext2D;
   private callbacks: DetectionCallbacks;
   
-  private faceMesh: any = null; // use any for runtime-loaded FaceMesh
+  private faceMesh: any = null; // runtime-loaded
   private objectModel: cocoSsd.ObjectDetection | null = null;
   
   private detectionActive = false;
@@ -73,11 +73,9 @@ class DetectionEngine {
 
   async initialize(): Promise<void> {
     try {
-      // Initialize TensorFlow.js
       await tf.ready();
       console.log('TensorFlow.js initialized');
 
-      // Load models concurrently
       await Promise.all([
         this.initializeFaceMesh(),
         this.initializeObjectDetection()
@@ -89,73 +87,60 @@ class DetectionEngine {
     }
   }
 
-  /**
-   * Load mediapipe FaceMesh from CDN (if needed) and return the constructor.
-   * Handles different possible exports (global, default wrapper, etc).
+  /** 
+   * Try to locate FaceMesh constructor in all possible global places after CDN load 
    */
   private async loadFaceMeshConstructorFromCDN(): Promise<any> {
-    // If already available on window, return it
     const anyWindow = window as any;
+
     const findConstructor = () => {
-      // common places where it might be exposed
       if (anyWindow.FaceMesh && typeof anyWindow.FaceMesh === 'function') return anyWindow.FaceMesh;
-      if (anyWindow.default && anyWindow.default.FaceMesh && typeof anyWindow.default.FaceMesh === 'function') return anyWindow.default.FaceMesh;
-      if (anyWindow.faceMesh && typeof anyWindow.faceMesh === 'function') return anyWindow.faceMesh;
-      // some bundles attach under a module name
-      if (anyWindow.__mediapipe_face_mesh__ && anyWindow.__mediapipe_face_mesh__.FaceMesh) return anyWindow.__mediapipe_face_mesh__.FaceMesh;
-      // attempt to find nested default
-      if (anyWindow.default && anyWindow.default.default && anyWindow.default.default.FaceMesh) return anyWindow.default.default.FaceMesh;
+      if (anyWindow.faceMesh && typeof anyWindow.faceMesh.FaceMesh === 'function') return anyWindow.faceMesh.FaceMesh;
+      if (anyWindow.default?.FaceMesh && typeof anyWindow.default.FaceMesh === 'function') return anyWindow.default.FaceMesh;
+      if (anyWindow.__mediapipe_face_mesh__?.FaceMesh) return anyWindow.__mediapipe_face_mesh__.FaceMesh;
+      if (anyWindow.mediapipe?.FaceMesh) return anyWindow.mediapipe.FaceMesh;
+      if (anyWindow.default?.default?.FaceMesh) return anyWindow.default.default.FaceMesh;
       return null;
     };
 
     let ctor = findConstructor();
     if (ctor) return ctor;
 
-    // Not present yet — inject CDN script and wait for it
     const CDN_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
 
-    // Avoid injecting twice
-    const existingScript = document.querySelector(`script[src="${CDN_URL}"]`);
-    if (!existingScript) {
+    // Inject if not loaded
+    if (!document.querySelector(`script[src="${CDN_URL}"]`)) {
       const script = document.createElement('script');
       script.src = CDN_URL;
       script.async = true;
       script.defer = true;
       document.head.appendChild(script);
 
-      // wait for load or error
       await new Promise<void>((resolve, reject) => {
-        script.addEventListener('load', () => resolve());
-        script.addEventListener('error', (ev) => reject(new Error('Failed to load FaceMesh CDN script')));
-        // safety timeout — if it never loads, reject
-        setTimeout(() => reject(new Error('Timed out loading FaceMesh CDN script')), 10000);
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error('Failed to load FaceMesh from CDN'));
+        setTimeout(() => reject(new Error('Timeout loading FaceMesh CDN')), 10000);
       });
     } else {
-      // script already present; wait a tick for it to evaluate
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 100));
     }
 
-    // try to find constructor again after script load
     ctor = findConstructor();
     if (ctor) return ctor;
 
-    // last-ditch: check common default wrappers
-    if (anyWindow.FaceMesh && (anyWindow.FaceMesh as any).default) {
-      const maybe = (anyWindow.FaceMesh as any).default;
-      if (typeof maybe === 'function') return maybe;
-      if (maybe && maybe.FaceMesh) return maybe.FaceMesh;
-    }
+    console.error('DEBUG: window keys sample', Object.keys(anyWindow).slice(0, 50));
+    console.error('DEBUG: window.FaceMesh', anyWindow.FaceMesh);
+    console.error('DEBUG: window.faceMesh', anyWindow.faceMesh);
+    console.error('DEBUG: window.__mediapipe_face_mesh__', anyWindow.__mediapipe_face_mesh__);
+    console.error('DEBUG: window.mediapipe', anyWindow.mediapipe);
 
-    // if still not found, provide a helpful error
-    throw new Error('FaceMesh constructor not found on window after loading CDN. Check that the CDN path is correct and that the script has loaded before app code runs.');
+    throw new Error('FaceMesh constructor not found after CDN load.');
   }
 
   private async initializeFaceMesh(): Promise<void> {
     try {
-      // Load the FaceMesh constructor robustly (from global CDN)
       const FaceMeshCtor = await this.loadFaceMeshConstructorFromCDN();
 
-      // create an instance using located file path for assets
       this.faceMesh = new FaceMeshCtor({
         locateFile: (file: string) =>
           `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
@@ -181,14 +166,9 @@ class DetectionEngine {
 
   private async initializeObjectDetection(): Promise<void> {
     try {
-      // Load COCO-SSD model
-      this.objectModel = await cocoSsd.load({
-        base: 'mobilenet_v2' // Faster but less accurate
-      });
-      
+      this.objectModel = await cocoSsd.load({ base: 'mobilenet_v2' });
       this.callbacks.onModelLoad('objectDetection', true);
       console.log('Object detection model loaded successfully');
-      
     } catch (error) {
       console.error('Object detection initialization failed:', error);
       this.callbacks.onModelLoad('objectDetection', false);
@@ -198,41 +178,25 @@ class DetectionEngine {
 
   startDetection(): void {
     if (this.detectionActive) return;
-    
     this.detectionActive = true;
-    
-    // Start face detection at 5 FPS for better performance
-    this.faceDetectionInterval = window.setInterval(() => {
-      this.runFaceDetection();
-    }, 200); // 5 FPS
-    
-    // Start object detection at 1 FPS to reduce CPU load
-    this.objectDetectionInterval = window.setInterval(() => {
-      this.runObjectDetection();
-    }, 1000); // 1 FPS
+
+    this.faceDetectionInterval = window.setInterval(() => this.runFaceDetection(), 200);
+    this.objectDetectionInterval = window.setInterval(() => this.runObjectDetection(), 1000);
 
     console.log('Detection started');
   }
 
   stopDetection(): void {
     this.detectionActive = false;
-    
-    if (this.faceDetectionInterval) {
-      clearInterval(this.faceDetectionInterval);
-      this.faceDetectionInterval = null;
-    }
-    
-    if (this.objectDetectionInterval) {
-      clearInterval(this.objectDetectionInterval);
-      this.objectDetectionInterval = null;
-    }
-
+    if (this.faceDetectionInterval) clearInterval(this.faceDetectionInterval);
+    if (this.objectDetectionInterval) clearInterval(this.objectDetectionInterval);
+    this.faceDetectionInterval = null;
+    this.objectDetectionInterval = null;
     console.log('Detection stopped');
   }
 
   private async runFaceDetection(): Promise<void> {
     if (!this.faceMesh || !this.detectionActive || this.video.readyState < 2) return;
-
     try {
       await this.faceMesh.send({ image: this.video });
     } catch (error) {
@@ -242,37 +206,27 @@ class DetectionEngine {
 
   private async runObjectDetection(): Promise<void> {
     if (!this.objectModel || !this.detectionActive || this.video.readyState < 2) return;
-
     try {
-      // Create a smaller canvas for object detection to improve performance
       const smallCanvas = document.createElement('canvas');
       const smallCtx = smallCanvas.getContext('2d');
       if (!smallCtx) return;
 
-      const scale = 0.3; // Scale down for performance
+      const scale = 0.3;
       smallCanvas.width = this.video.videoWidth * scale;
       smallCanvas.height = this.video.videoHeight * scale;
-      
       smallCtx.drawImage(this.video, 0, 0, smallCanvas.width, smallCanvas.height);
 
       const predictions = await this.objectModel.detect(smallCanvas);
-      
       const detectedObjects: DetectedObject[] = predictions
         .filter(pred => this.isProhibitedObject(pred.class) && pred.score > 0.45)
-        .map(pred => ({
-          class: pred.class,
-          confidence: pred.score,
-          bbox: pred.bbox
-        }));
+        .map(pred => ({ class: pred.class, confidence: pred.score, bbox: pred.bbox }));
 
       if (detectedObjects.length > 0) {
         this.callbacks.onObjectDetection(detectedObjects);
         this.drawObjectDetections(detectedObjects, scale);
       } else {
-        // Clear object detection overlays
         this.clearObjectOverlays();
       }
-
     } catch (error) {
       console.error('Object detection error:', error);
     }
@@ -280,17 +234,13 @@ class DetectionEngine {
 
   private onFaceMeshResults(results: any): void {
     if (!this.detectionActive) return;
-
     const now = Date.now();
     const faceCount = results.multiFaceLandmarks ? results.multiFaceLandmarks.length : 0;
     const hasFace = faceCount > 0;
     const multipleFaces = faceCount > 1;
 
-    // Update canvas size to match video
     this.canvas.width = this.video.videoWidth;
     this.canvas.height = this.video.videoHeight;
-
-    // Clear canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     let lookingAway = false;
@@ -300,67 +250,41 @@ class DetectionEngine {
     if (hasFace) {
       this.gazeState.hasFace = true;
       this.gazeState.lastFaceTime = now;
-      
       if (this.gazeState.noFaceStart) {
         this.gazeState.noFaceStart = null;
-        this.gazeState.noFaceViolationLogged = false; // Reset when face is detected
+        this.gazeState.noFaceViolationLogged = false;
       }
-
-      // Draw face landmarks and check gaze
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+      if (results.multiFaceLandmarks?.[0]) {
         const landmarks = results.multiFaceLandmarks[0];
         const currentLookingAway = this.analyzeLookingAway(landmarks);
-        
-        // Add to gaze history for smoothing
         this.gazeState.gazeHistory.push(currentLookingAway);
-        if (this.gazeState.gazeHistory.length > 10) {
-          this.gazeState.gazeHistory.shift();
-        }
-        
-        // Consider looking away only if consistently detected over multiple frames
+        if (this.gazeState.gazeHistory.length > 10) this.gazeState.gazeHistory.shift();
         const lookingAwayCount = this.gazeState.gazeHistory.filter(Boolean).length;
-        lookingAway = lookingAwayCount >= 7; // 70% of recent frames
-        
+        lookingAway = lookingAwayCount >= 7;
         if (lookingAway) {
           if (!this.gazeState.lookAwayStart) {
             this.gazeState.lookAwayStart = now;
-            this.gazeState.lookAwayViolationLogged = false; // Reset log flag for new looking away session
+            this.gazeState.lookAwayViolationLogged = false;
           }
           lookAwayDuration = (now - this.gazeState.lookAwayStart) / 1000;
         } else {
-          // User is looking at camera - reset looking away state
-          if (this.gazeState.lookAwayStart) {
-            this.gazeState.lookAwayStart = null;
-            this.gazeState.lookAwayViolationLogged = false;
-          }
-          lookAwayDuration = 0;
+          this.gazeState.lookAwayStart = null;
+          this.gazeState.lookAwayViolationLogged = false;
         }
-
         this.drawFaceLandmarks(landmarks, lookingAway);
       }
-
-      // Draw multiple face warning
-      if (multipleFaces) {
-        this.drawMultipleFaceWarning();
-      }
-
+      if (multipleFaces) this.drawMultipleFaceWarning();
     } else {
       this.gazeState.hasFace = false;
-      
       if (!this.gazeState.noFaceStart) {
         this.gazeState.noFaceStart = now;
-        this.gazeState.noFaceViolationLogged = false; // Reset log flag for new no face session
+        this.gazeState.noFaceViolationLogged = false;
       }
-      
       noFaceDuration = (now - this.gazeState.noFaceStart) / 1000;
-      
-      if (this.gazeState.lookAwayStart) {
-        this.gazeState.lookAwayStart = null;
-        this.gazeState.lookAwayViolationLogged = false;
-      }
+      this.gazeState.lookAwayStart = null;
+      this.gazeState.lookAwayViolationLogged = false;
     }
 
-    // Send detection results
     const faceResult: FaceDetectionResult = {
       multipleFaces,
       noFace: !hasFace,
@@ -369,54 +293,22 @@ class DetectionEngine {
       lookAwayDuration,
       faceCount
     };
-
     this.callbacks.onFaceDetection(faceResult);
   }
 
   private analyzeLookingAway(landmarks: any[]): boolean {
     if (!landmarks || landmarks.length < 468) return false;
-
     try {
-      // Use more reliable landmarks for gaze detection
-      const leftEyeInner = landmarks[133]; // Left eye inner corner
-      const rightEyeInner = landmarks[362]; // Right eye inner corner
-      const noseTip = landmarks[1]; // Nose tip
-      const leftEyeOuter = landmarks[33]; // Left eye outer corner
-      const rightEyeOuter = landmarks[263]; // Right eye outer corner
-
-      // Calculate eye centers
-      const leftEyeCenter = {
-        x: (leftEyeInner.x + leftEyeOuter.x) / 2,
-        y: (leftEyeInner.y + leftEyeOuter.y) / 2
-      };
-      
-      const rightEyeCenter = {
-        x: (rightEyeInner.x + rightEyeOuter.x) / 2,
-        y: (rightEyeInner.y + rightEyeOuter.y) / 2
-      };
-
-      // Calculate face center
-      const faceCenter = {
-        x: (leftEyeCenter.x + rightEyeCenter.x) / 2,
-        y: (leftEyeCenter.y + rightEyeCenter.y) / 2
-      };
-
-      // Calculate nose-to-eye alignment (should be centered when looking forward)
+      const leftEyeInner = landmarks[133], rightEyeInner = landmarks[362];
+      const noseTip = landmarks[1], leftEyeOuter = landmarks[33], rightEyeOuter = landmarks[263];
+      const leftEyeCenter = { x: (leftEyeInner.x + leftEyeOuter.x) / 2, y: (leftEyeInner.y + leftEyeOuter.y) / 2 };
+      const rightEyeCenter = { x: (rightEyeInner.x + rightEyeOuter.x) / 2, y: (rightEyeInner.y + rightEyeOuter.y) / 2 };
+      const faceCenter = { x: (leftEyeCenter.x + rightEyeCenter.x) / 2, y: (leftEyeCenter.y + rightEyeCenter.y) / 2 };
       const noseEyeAlignmentX = Math.abs(noseTip.x - faceCenter.x);
       const eyeDistance = Math.abs(rightEyeCenter.x - leftEyeCenter.x);
-      
-      // Normalize by eye distance to account for different face sizes
       const normalizedDeviationX = noseEyeAlignmentX / eyeDistance;
-      
-      // Calculate vertical alignment
       const verticalDeviation = Math.abs(faceCenter.y - 0.5);
-
-      // More lenient thresholds - only flag extreme looking away
-      const horizontalThreshold = 0.25; // More lenient horizontal threshold
-      const verticalThreshold = 0.20; // More lenient vertical threshold
-
-      return normalizedDeviationX > horizontalThreshold || verticalDeviation > verticalThreshold;
-
+      return normalizedDeviationX > 0.25 || verticalDeviation > 0.2;
     } catch (error) {
       console.error('Gaze analysis error:', error);
       return false;
@@ -424,110 +316,56 @@ class DetectionEngine {
   }
 
   private drawFaceLandmarks(landmarks: any[], lookingAway: boolean): void {
-    const color = lookingAway ? '#ef4444' : '#22c55e'; // red if looking away, green if focused
-    
+    const color = lookingAway ? '#ef4444' : '#22c55e';
     this.ctx.fillStyle = color;
     this.ctx.strokeStyle = color;
     this.ctx.lineWidth = 1;
-
-    // Draw key landmarks
-    const keyPoints = [1, 33, 263, 61, 291, 199]; // nose, eyes, mouth corners
-    keyPoints.forEach(pointIndex => {
-      if (landmarks[pointIndex]) {
-        const point = landmarks[pointIndex];
-        const x = point.x * this.canvas.width;
-        const y = point.y * this.canvas.height;
-        
+    [1, 33, 263, 61, 291, 199].forEach(i => {
+      if (landmarks[i]) {
+        const p = landmarks[i];
         this.ctx.beginPath();
-        this.ctx.arc(x, y, 2, 0, 2 * Math.PI);
+        this.ctx.arc(p.x * this.canvas.width, p.y * this.canvas.height, 2, 0, 2 * Math.PI);
         this.ctx.fill();
       }
     });
-
-    // Draw status text
     this.ctx.font = '16px Arial';
     this.ctx.fillStyle = color;
-    this.ctx.fillText(
-      lookingAway ? 'Looking Away' : 'Focused',
-      10,
-      30
-    );
+    this.ctx.fillText(lookingAway ? 'Looking Away' : 'Focused', 10, 30);
   }
 
   private drawMultipleFaceWarning(): void {
     this.ctx.fillStyle = '#ef4444';
     this.ctx.font = 'bold 20px Arial';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(
-      'MULTIPLE FACES DETECTED',
-      this.canvas.width / 2,
-      50
-    );
+    this.ctx.fillText('MULTIPLE FACES DETECTED', this.canvas.width / 2, 50);
     this.ctx.textAlign = 'left';
   }
 
   private drawObjectDetections(objects: DetectedObject[], scale: number): void {
     objects.forEach(obj => {
-      const [x, y, width, height] = obj.bbox;
-      
-      // Scale back up to full resolution
-      const scaledX = x / scale;
-      const scaledY = y / scale;
-      const scaledWidth = width / scale;
-      const scaledHeight = height / scale;
-
-      // Draw bounding box
+      const [x, y, w, h] = obj.bbox;
+      const sx = x / scale, sy = y / scale, sw = w / scale, sh = h / scale;
       this.ctx.strokeStyle = '#ef4444';
       this.ctx.lineWidth = 3;
-      this.ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
-
-      // Draw label
+      this.ctx.strokeRect(sx, sy, sw, sh);
       this.ctx.fillStyle = '#ef4444';
-      this.ctx.fillRect(scaledX, scaledY - 25, scaledWidth, 25);
-      
-      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillRect(sx, sy - 25, sw, 25);
+      this.ctx.fillStyle = '#fff';
       this.ctx.font = '14px Arial';
-      this.ctx.fillText(
-        `${obj.class} (${(obj.confidence * 100).toFixed(0)}%)`,
-        scaledX + 5,
-        scaledY - 8
-      );
+      this.ctx.fillText(`${obj.class} (${(obj.confidence * 100).toFixed(0)}%)`, sx + 5, sy - 8);
     });
   }
 
-  private clearObjectOverlays(): void {
-    // Object overlays are cleared when canvas is cleared in the next frame
-  }
+  private clearObjectOverlays(): void {}
 
   private isProhibitedObject(className: string): boolean {
-    const prohibitedItems = [
-      'cell phone',
-      'laptop',
-      'book',
-      'keyboard',
-      'mouse',
-      'tablet',
-      'remote'
-    ];
-    
-    return prohibitedItems.some(item => 
-      className.toLowerCase().includes(item) || 
-      item.includes(className.toLowerCase())
-    );
+    return ['cell phone','laptop','book','keyboard','mouse','tablet','remote']
+      .some(item => className.toLowerCase().includes(item) || item.includes(className.toLowerCase()));
   }
 
   cleanup(): void {
     this.stopDetection();
-    
-    if (this.faceMesh) {
-      try {
-        this.faceMesh.close?.();
-      } catch (e) {
-        // ignore
-      }
-      this.faceMesh = null;
-    }
-    
+    if (this.faceMesh) { try { this.faceMesh.close?.(); } catch {} this.faceMesh = null; }
     this.objectModel = null;
     console.log('Detection engine cleaned up');
   }
