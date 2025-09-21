@@ -1,6 +1,5 @@
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import { FaceMesh } from '@mediapipe/face_mesh';
 
 interface DetectionCallbacks {
   onFaceDetection: (results: FaceDetectionResult) => void;
@@ -92,28 +91,31 @@ class DetectionEngine {
 
   private async initializeFaceMesh(): Promise<void> {
     try {
-      this.faceMesh = new FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      // Use FaceMesh from the global window (loaded via CDN in index.html)
+      // @ts-ignore because TS doesn’t know about global FaceMesh
+      this.faceMesh = new (window as any).FaceMesh({
+        locateFile: (file: string) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
       });
-
+  
       this.faceMesh.setOptions({
         maxNumFaces: 3,
-        refineLandmarks: false, // Disable refinement for better performance
+        refineLandmarks: false,
         minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7
+        minTrackingConfidence: 0.7,
       });
-
+  
       this.faceMesh.onResults(this.onFaceMeshResults.bind(this));
-      
-      this.callbacks.onModelLoad('faceDetection', true);
-      console.log('Face mesh model loaded successfully');
-      
+  
+      this.callbacks.onModelLoad("faceDetection", true);
+      console.log("Face mesh model loaded successfully (via CDN)");
     } catch (error) {
-      console.error('Face mesh initialization failed:', error);
-      this.callbacks.onModelLoad('faceDetection', false);
+      console.error("Face mesh initialization failed:", error);
+      this.callbacks.onModelLoad("faceDetection", false);
       throw error;
     }
   }
+  
 
   private async initializeObjectDetection(): Promise<void> {
     try {
