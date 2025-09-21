@@ -1,7 +1,5 @@
 <!doctype html>
 <html lang="en">
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,15 +7,18 @@
     <meta name="description" content="Advanced AI-powered video interview proctoring with real-time face detection, gaze tracking, and object detection" />
     <meta name="author" content="Proctoring Solutions" />
 
-    <meta property="og:title" content="41c03950-22f7-4a1a-833d-05198d554aad" />
+    <!-- OpenGraph / Twitter meta -->
+    <meta property="og:title" content="Video Interview Proctoring System" />
     <meta property="og:type" content="website" />
-
     <meta name="twitter:card" content="summary_large_image" />
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>`n</head>
+
+    <!-- ✅ Load FaceMesh from CDN BEFORE app bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  </head>
 
   <body>
     <div id="root"></div>
+    <!-- Vite/React entry -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
